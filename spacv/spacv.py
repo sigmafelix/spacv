@@ -102,10 +102,10 @@ class HBLOCK(BaseSpatialCV):
         
         Parameters
         ----------
-        XYs : GeoSeries
-            GeoSeries containing shapely Points that identify Easting
-            and Northing coordinates of data points.
-            
+        XYs : GeoSeries or GeoDataFrame
+            GeoSeries or GeoDataFrame containing shapely Points or Polygons
+            that identify the geometries of data points.
+                
         Yields
         ------
         test_indices : array
@@ -125,11 +125,20 @@ class HBLOCK(BaseSpatialCV):
                       n_sims = self.n_sims,
                       random_state = self.random_state)
     
-        # Convert to GDF to use Geopandas functions
-        XYs = gpd.GeoDataFrame(({'geometry':XYs}))
-                            
-        # Assign pts to grids
-        XYs = assign_pt_to_grid(XYs, grid, self.distance_metric)
+        # Ensure XYs is a GeoDataFrame
+        if not isinstance(XYs, gpd.GeoDataFrame):
+            XYs = gpd.GeoDataFrame({'geometry': XYs})
+
+        # Check if data geometries are Polygons
+        is_polygon = any(XYs.geom_type.isin(['Polygon', 'MultiPolygon']))
+
+        # Assign data geometries to grids
+        if is_polygon:
+            # Assign polygons to grids using spatial join
+            XYs = gpd.sjoin(XYs, grid[['grid_id']], how='left', predicate='intersects')
+        else:
+            # Assign points to grids using assign_pt_to_grid
+            XYs = assign_pt_to_grid(XYs, grid, self.distance_metric)
         grid_ids = np.unique(grid.grid_id)
 
         # Yield test indices and optionally training indices within buffer
@@ -150,7 +159,7 @@ class SKCV(BaseSpatialCV):
     CV to overcome biased prediction performance of estimates 
     due to autocorrelation in spatial data. Overoptimistic bias 
     in performance is prevented by ensuring spatial proximity of 
-    test data, and maintaing a training set that is within a certain
+    test data, and maintaining a training set that is within a certain
     spatial distance from the test dataset.
     
     When K=N, SKCV becomes a spatial leave-one-out (SLOO) cross-validator.
@@ -187,10 +196,10 @@ class SKCV(BaseSpatialCV):
         
         Parameters
         ----------
-        X : GeoSeries
-            GeoSeries containing shapely Points that identify Easting
-            and Northing coordinates of data points.
-            
+        XYs : GeoSeries or GeoDataFrame
+            GeoSeries or GeoDataFrame containing shapely Points or Polygons
+            that identify the geometries of data points.
+                
         Yields
         ------
         test_indices : array
@@ -206,14 +215,14 @@ class SKCV(BaseSpatialCV):
                 )
             )
         sloo = len(XYs) == self.n_splits
-        lattice = any(XYs.geom_type == 'Polygon') or any(XYs.geom_type == 'MultiPolygon')
+        lattice = any(XYs.geom_type.isin(['Polygon', 'MultiPolygon']))
         
         # If K = N, SLOO
         if sloo:
             num_samples = XYs.shape[0]
             indices_from_folds = np.arange(num_samples)
         else:
-            # Partion XYs space into folds
+            # Partition XYs space into folds
             XYs_to_2d = geometry_to_2d(XYs)
             km_skcv = MiniBatchKMeans(n_clusters = self.n_splits, random_state=self.random_state)
             labels = km_skcv.fit(XYs_to_2d).labels_
@@ -294,9 +303,9 @@ class UserDefinedSCV(BaseSpatialCV):
     
     Parameters
     ----------
-    custom_polygons : string, GeoSeries
+    custom_polygons : string, GeoSeries, or GeoDataFrame
         File path to user defined grid polygons used to assign data
-        points into folds.
+        points into folds, or a GeoSeries/GeoDataFrame of Polygons.
     buffer_radius : integer, default=0
         Buffer radius (dead zone) to exclude training points that are 
         within a defined distance of test data within a fold.
@@ -331,10 +340,10 @@ class UserDefinedSCV(BaseSpatialCV):
         
         Parameters
         ----------
-        XYs : GeoSeries
-            GeoSeries containing shapely Points that identify Easting
-            and Northing coordinates of data points.
-            
+        XYs : GeoSeries or GeoDataFrame
+            GeoSeries or GeoDataFrame containing shapely Points or Polygons
+            that identify the geometries of data points.
+                
         Yields
         ------
         test_indices : array
@@ -345,8 +354,21 @@ class UserDefinedSCV(BaseSpatialCV):
         grid = self.custom_polygons
         grid['grid_id'] = grid.index
         grid_ids = np.unique(grid.grid_id)
-        
-        XYs = assign_pt_to_grid(XYs, grid, self.distance_metric)
+
+        # Ensure XYs is a GeoDataFrame
+        if not isinstance(XYs, gpd.GeoDataFrame):
+            XYs = gpd.GeoDataFrame({'geometry': XYs})
+
+        # Check if data geometries are Polygons
+        is_polygon = any(XYs.geom_type.isin(['Polygon', 'MultiPolygon']))
+
+        # Assign data geometries to grids
+        if is_polygon:
+            # Assign polygons to grids using spatial join
+            XYs = gpd.sjoin(XYs, grid[['grid_id']], how='left', predicate='intersects')
+        else:
+            # Assign points to grids using assign_pt_to_grid
+            XYs = assign_pt_to_grid(XYs, grid, self.distance_metric)
         
         # Yield test indices and optionally training indices within buffer
         for grid_id in grid_ids:
@@ -358,15 +380,17 @@ class UserDefinedSCV(BaseSpatialCV):
             test_indices, train_exclude = \
                 super()._remove_buffered_indices(XYs, test_indices, 
                                             self.buffer_radius, grid_poly_buffer)
-            yield test_indices, train_exclude 
-        
+            yield test_indices, train_exclude
+
 def compute_gcv(y, X):
     """
-    Compute generalized cross-validation (GCV) for i.i.d data. GSV
+    Compute generalized cross-validation (GCV) for i.i.d data. GCV
     is an approximation of leave-one-out (LOO) CV.
     
+    Note: To accommodate spatial data (e.g., with Polygon geometries),
+    spatial dependencies should be considered, and the method may need
+    to be adapted accordingly.
     
-    ADD: accomodate space.
     """
     y = y.reshape(-1, 1)
     ols = spreg.ols.OLS(y, X)
