@@ -3,6 +3,8 @@ import numbers
 import numpy as np
 import geopandas as gpd
 from sklearn.cluster import MiniBatchKMeans
+from sklearn.utils import check_random_state
+from shapely.ops import unary_union
 from .base_classes import BaseSpatialCV
 from .grid_builder import construct_blocks, assign_pt_to_grid
 from .utils import geometry_to_2d, convert_geodataframe, load_custom_polygon
@@ -147,7 +149,7 @@ class HBLOCK(BaseSpatialCV):
             # Remove empty grids
             if len(test_indices) < 1:
                 continue
-            grid_poly_buffer = grid.loc[[grid_id]].buffer(self.buffer_radius)
+            grid_poly_buffer = grid.loc[grid.grid_id == grid_id].buffer(self.buffer_radius)
             test_indices, train_exclude = \
                 super()._remove_buffered_indices(XYs, test_indices, 
                                             self.buffer_radius, grid_poly_buffer)
@@ -208,6 +210,8 @@ class SKCV(BaseSpatialCV):
             The training set indices to exclude for that fold.
         """
               
+        if isinstance(self.n_splits, bool) or not isinstance(self.n_splits, numbers.Integral) or self.n_splits < 2:
+            raise ValueError("n_splits must be an integer of at least 2.")
         if self.n_splits > len(XYs) :
             raise ValueError(
                 "Number of specified n_splits (folds) is larger than number of data points. Given {} observations and {} folds.".format(
@@ -224,8 +228,15 @@ class SKCV(BaseSpatialCV):
         else:
             # Partition XYs space into folds
             XYs_to_2d = geometry_to_2d(XYs)
+            # Fit repeated stations once; temporal sampling must not weight space.
+            locations, inverse = np.unique(XYs_to_2d, axis=0, return_inverse=True)
+            if len(locations) < len(XYs_to_2d):
+                if self.n_splits > len(locations):
+                    raise ValueError("n_splits exceeds the number of unique locations.")
+            else:
+                locations, inverse = XYs_to_2d, np.arange(len(XYs_to_2d))
             km_skcv = MiniBatchKMeans(n_clusters = self.n_splits, random_state=self.random_state)
-            labels = km_skcv.fit(XYs_to_2d).labels_
+            labels = km_skcv.fit(locations).labels_[inverse]
             uniques, counts = np.unique(labels, return_counts=True)
 
             check_fold_n = (counts < 2)
@@ -235,15 +246,18 @@ class SKCV(BaseSpatialCV):
             indices_from_folds = [np.argwhere(labels == i).reshape(-1) 
                                                   for i in uniques]    
         for fold_indices in indices_from_folds:   
+            if self.buffer_radius == 0:
+                yield np.atleast_1d(fold_indices).astype(int), np.empty(0, dtype=int)
+                continue
             if sloo:
                 test_indices = np.array([fold_indices])
                 fold_polygon = XYs.loc[test_indices].buffer(self.buffer_radius)
             elif lattice:
                 test_indices = np.array(fold_indices)
-                fold_polygon = XYs.loc[test_indices].unary_union.buffer(self.buffer_radius) 
+                fold_polygon = unary_union(XYs.loc[test_indices]).buffer(self.buffer_radius)
             else: # skcv
                 test_indices = np.array(fold_indices)
-                fold_polygon = XYs.loc[test_indices].unary_union.convex_hull.buffer(self.buffer_radius)
+                fold_polygon = unary_union(XYs.loc[test_indices]).convex_hull.buffer(self.buffer_radius)
                 
             test_indices, train_exclude = \
                 super()._remove_buffered_indices(XYs, test_indices, 
@@ -287,13 +301,19 @@ class RepeatedSKCV(SKCV):
         self.n_repeats = n_repeats
         self.n_splits = n_splits
         self.cvargs = cvargs
+        self.random_state = random_state
+        self.buffer_radius = cvargs.get('buffer_radius', 0)
                 
-    def split(self, XYs):
+    def split(self, X, y=None, groups=None):
         n_repeats = self.n_repeats
+        rng = check_random_state(self.random_state)
         for idx in range(n_repeats):
-            cv = self.cv(self.n_splits, **self.cvargs)
-            for train_index, test_index in cv.split(XYs):
+            cv = self.cv(self.n_splits, random_state=rng.randint(2147483647), **self.cvargs)
+            for train_index, test_index in cv.split(X, y, groups):
                 yield train_index, test_index
+
+    def get_n_splits(self, X=None, y=None, groups=None):
+        return self.n_repeats * self.n_splits
                 
 class UserDefinedSCV(BaseSpatialCV):
     """
@@ -351,7 +371,7 @@ class UserDefinedSCV(BaseSpatialCV):
         train_exclude : array
             The training set indices to exclude for that fold.
         """  
-        grid = self.custom_polygons
+        grid = convert_geodataframe(self.custom_polygons).copy()
         grid['grid_id'] = grid.index
         grid_ids = np.unique(grid.grid_id)
 

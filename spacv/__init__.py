@@ -3,5 +3,6 @@
 """
 
 from .spacv import *
+from .spatiotemporal import STCV
 
-__version__ = "0.0.23"
+__version__ = "0.0.25"

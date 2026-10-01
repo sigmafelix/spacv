@@ -1,8 +1,7 @@
 numpy
 matplotlib
 pandas
-geopandas
+geopandas>=0.14
 shapely
 scikit-learn
 scipy
-pygeos

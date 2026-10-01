@@ -3,6 +3,7 @@ import geopandas as gpd
 from shapely.geometry import Polygon
 from matplotlib.collections import PolyCollection
 from sklearn.neighbors import BallTree
+from sklearn.utils import check_random_state
 from .utils import convert_geodataframe, geometry_to_2d, convert_numpy
 
 __all__ = [
@@ -205,14 +206,14 @@ def assign_randomized(grid, n_groups=5, random_state=None):
     """
     Set grid pattern as randomized by randomly assigning grid IDs.
     """
-    np.random.seed(random_state)
+    rng = check_random_state(random_state)
     
     # Determine number of randomized groups
     n_random_grps = np.arange(0, n_groups)
     n_grids = grid.shape[0]
     
     # Allocate random group id to each grid row
-    grid_id = np.random.choice(n_random_grps, size=n_grids, replace=True)
+    grid_id = rng.choice(n_random_grps, size=n_grids, replace=True)
     
     return grid_id
 
@@ -254,7 +255,6 @@ def assign_pt_to_grid(XYs, grid, distance_metric='euclidean', random_state=None)
     """
     Spatial join pts to grids. Reassign border points to nearest grid based on centroid distance. 
     """
-    np.random.seed(random_state)
     XYs = convert_geodataframe(XYs)   
     # Equate spatial reference systems if defined 
     if not grid.crs == XYs.crs:

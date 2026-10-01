@@ -33,23 +33,17 @@ class SKCV_Tester(unittest.TestCase):
             fold_train.append(train)
             fold_test.append(test)
 
-        scv_fold_one = fold_test[0]
-        scv_fold_two = fold_test[1]
-        scv_fold_three = fold_test[2]
-        
-        scv_train_one = fold_train[0]
-        scv_train_two = fold_train[1]
-        scv_train_three = fold_train[2]
-        
-        np.testing.assert_equal(self.fold_test_one, scv_fold_one)
-        np.testing.assert_equal(self.fold_test_two, scv_fold_two)
-        np.testing.assert_equal(self.fold_test_three, scv_fold_three)
-        
-        # Training pts removed in deadzone buffer check
-        np.testing.assert_equal(self.fold_train_one, scv_train_one)
-        np.testing.assert_equal(self.fold_train_two, scv_train_two)
-        np.testing.assert_equal(self.fold_train_three, scv_train_three)
-        
+        # Cluster label ordering is arbitrary across sklearn versions.
+        expected = [(self.fold_train_one, self.fold_test_one),
+                    (self.fold_train_two, self.fold_test_two),
+                    (self.fold_train_three, self.fold_test_three)]
+        actual = list(zip(fold_train, fold_test))
+        for (expected_train, expected_test), (train, test) in zip(
+                sorted(expected, key=lambda fold: fold[1][0]),
+                sorted(actual, key=lambda fold: fold[1][0])):
+            np.testing.assert_equal(expected_test, test)
+            np.testing.assert_equal(expected_train, train)
+
         
 class HBLOCK_Tester(unittest.TestCase):
     def setUp(self):

@@ -19,6 +19,9 @@ def geometry_to_2d(geometry):
     coords : ndarray
         Numpy array of shape (n_samples, 2) containing x and y coordinates.
     """
+    if isinstance(geometry, gpd.GeoSeries) and (geometry.geom_type == 'Point').all():
+        return np.column_stack((geometry.x.to_numpy(), geometry.y.to_numpy()))
+
     def get_xy(geom):
         if geom.geom_type == 'Point':
             return (geom.x, geom.y)
@@ -33,7 +36,7 @@ def geometry_to_2d(geometry):
 def convert_geoseries(XYs):
     """
     Convert various types of inputs to a GeoSeries.
-    If input is a GeoDataFrame with Polygon geometries, convert to centroids.
+    Preserve polygon geometries and return positional indices.
     
     Parameters
     ----------
@@ -46,10 +49,7 @@ def convert_geoseries(XYs):
         GeoSeries containing Point geometries.
     """
     if isinstance(XYs, gpd.GeoDataFrame):
-        if any(XYs.geom_type.isin(['Polygon', 'MultiPolygon'])):
-            XYs = XYs.geometry.centroid
-        else:
-            XYs = XYs.geometry
+        XYs = XYs.geometry
     elif isinstance(XYs, np.ndarray):
         XYs = gpd.GeoSeries(gpd.points_from_xy(XYs[:, 0], XYs[:, 1]))
     elif isinstance(XYs, (Point, Polygon, LineString, MultiPolygon)):
