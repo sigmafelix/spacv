@@ -3,7 +3,9 @@
 `spacv` is a small Python 3 (3.9 and above) package for cross-validation of models
 that assess generalization performance to datasets with spatial dependence. `spacv` provides
 a familiar sklearn-like API to expose a suite of tools useful for points-based spatial prediction tasks.
-See the notebook `spacv_guide.ipynb` for usage.
+See the notebook `spacv_guide.ipynb` for usage. For a complete, executable tour
+of all supported CV methods with 2.5D fold visualizations, see
+[`spacv_guide_v2.ipynb`](spacv_guide_v2.ipynb).
 
 <p align="center">
 <img src="demo_viz_buffer.gif" width="300" height="250"/>
